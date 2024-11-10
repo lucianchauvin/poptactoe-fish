@@ -31,7 +31,7 @@ def start_game():
     max_latency = data.get('max_latency')
 
     ##### MODIFY BELOW #####
-
+    print(first_turn)
     agent = SFAgent(first_turn)
 
     ###################
@@ -77,6 +77,7 @@ def make_move():
     # This is where you'd call your minimax/MCTS/neural network/etc
 
     move = agent.get_best_move(game)
+    print(game.display_board())
 
     ###################
     
@@ -100,7 +101,9 @@ def end_game():
     """Handle game end notification"""
     data = request.get_json()
     # Extract end game data
-    print(data)
+    game_data = data.get('game')
+    game = Game.from_dict(game_data)
+    print(game.display_board())
     
     return jsonify({
         "message": "Game ended successfully"
