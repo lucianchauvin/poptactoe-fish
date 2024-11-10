@@ -49,7 +49,7 @@ class Engine:
 
         self.process.stdin.write('go\n')
         self.process.stdin.flush()
-        time.sleep(3.5)
+        time.sleep(.1)
         self.process.stdin.write('stop\n')
         self.process.stdin.flush()
         while True:
