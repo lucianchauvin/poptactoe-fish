@@ -1,0 +1,255 @@
+diff --git a/src/bitboard.h b/src/bitboard.h
+index ce575b5d..3733f2f3 100644
+--- a/src/bitboard.h
++++ b/src/bitboard.h
+@@ -256,7 +256,31 @@ constexpr Bitboard shift(Direction D, Bitboard b) {
+         : D == SOUTH_EAST ? (b & ~file_bb(FILE_MAX)) >> NORTH_WEST : D == SOUTH_WEST ? (b & ~FileABB) >> NORTH_EAST
+         : Bitboard(0);
+ }
+-
++inline Bitboard shift_wrap(Direction D, Bitboard b) {
++	long long val[8];
++	Bitboard shifted = 0;
++	int h = (D+64)%8;
++	for(int ii = 0; ii < 8; ii++)
++	{
++		val[ii] = (b >> 8*ii) % (1 << 8);
++		val[ii] = ((val[ii] << h) | (val[ii] >> (8-h))) % (1<<8);
++	}
++	for(int ii = 0; ii < 8; ii++)
++	{
++		shifted |= val[(ii - D/6 + 8)%8] << 8*ii;
++	}
++	return shifted;
++}
++constexpr Square shift_wrap(Direction D, Square s, int dist)
++{
++	int sx = s/8;
++	int sy = s%8;
++	int dy = ((D+16)%8);
++	int dx = D/7;
++	sx = (sx + dx*dist + 8)%8;
++	sy = (sy + dy*dist + 8)%8;
++	return Square(8*sx + sy);
++}
+ 
+ /// pawn_attacks_bb() returns the squares attacked by pawns of the given color
+ /// from the squares in the given bitboard.
+diff --git a/src/evaluate.cpp b/src/evaluate.cpp
+index 5e498745..0170d760 100644
+--- a/src/evaluate.cpp
++++ b/src/evaluate.cpp
+@@ -1297,21 +1297,21 @@ namespace {
+         {
+             // Find sufficiently large gaps
+             Bitboard b = pos.board_bb() & ~pos.pieces(Them);
+-            for (int i = 1; i < pos.connect_n(); i++)
+-                b &= shift(d, b);
++            //for (int i = 1; i < pos.connect_n(); i++)
++            //    b &= shift(d, b);
+             // Count number of pieces per gap
++			//TODO
+             while (b)
+             {
+                 Square s = pop_lsb(b);
+                 int c = 0;
+                 for (int j = 0; j < pos.connect_n(); j++)
+-                    if (connectPiecesUs & (s - j * d))
++                    if (connectPiecesUs & shift_wrap(d,s,j))//shift_wrap is new, may be buggy
+                         c++;
+-                score += make_score(200, 200)  * c / (pos.connect_n() - c) / (pos.connect_n() - c);
++                score += make_score(200, 200)  * c / (pos.connect_n() - c+1) / (pos.connect_n() - c+1);
+             }
+         }
+     }
+-
+     // Potential piece flips (Reversi)
+     if (pos.flip_enclosed_pieces())
+     {
+diff --git a/src/position.cpp b/src/position.cpp
+index 5278c015..7dd59f4b 100644
+--- a/src/position.cpp
++++ b/src/position.cpp
+@@ -47,6 +47,20 @@ namespace Zobrist {
+   Key wall[SQUARE_NB];
+   Key endgame[EG_EVAL_NB];
+ }
++//void Position::drop_piece(Piece pc_hand, Piece pc_drop, Square s) {
++//  assert(can_drop(color_of(pc_hand), type_of(pc_hand)) || var->twoBoards);
++//  put_piece(pc_drop, s, pc_drop != pc_hand, pc_drop != pc_hand ? pc_hand : NO_PIECE);
++//  remove_from_hand(pc_hand);
++//  virtualPieces += (pieceCountInHand[color_of(pc_hand)][type_of(pc_hand)] < 0);
++//  ////try to pop pieces
++//  //for (const Direction& D : getConnectDirections())
++//  //{
++//  //    Square adj = shift_wrap(D,s,1);
++//  //    Square nex = shift_wrap(D,s,2);
++//  //    if((adj & board_bb()) && !(nex & board_bb()))
++//  //  	  move_piece(adj,nex);
++//  //}
++//}
+ 
+ 
+ /// operator<<(Position) returns an ASCII representation of the position
+@@ -1527,6 +1541,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
+ 
+   assert(is_ok(m));
+   assert(&newSt != st);
++  //std::cout << "do move " << m << '\n';
+ 
+ #ifndef NO_THREADS
+   thisThread->nodes.fetch_add(1, std::memory_order_relaxed);
+@@ -1752,7 +1767,23 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
+           dp.to[0] = to;
+       }
+ 
++	  std::memset(st->unpromotedBycatch, 0, sizeof(st->unpromotedBycatch));
+       drop_piece(make_piece(us, in_hand_piece_type(m)), pc, to);
++	  //try to pop pieces
++	  for (const Direction& D : POP_DIRECTIONS)
++	  {
++		  Square adj = shift_wrap(D,to,1);
++		  Square nex = shift_wrap(D,to,2);
++		  if((adj & pieces()) && !(nex & pieces()))
++		  {
++			  Piece popped = piece_on(adj);
++			  st->unpromotedBycatch[nex] = popped;
++			  //std::cout << "popping " << adj << " to " << nex << '\n';
++			  //std::cout << " post-pop:" << fen() << '\n';
++			  move_piece(adj,nex);
++		  }
++	  }
++
+       st->materialKey ^= Zobrist::psq[pc][pieceCount[pc]-1];
+       if (type_of(pc) != PAWN)
+           st->nonPawnMaterial[us] += PieceValue[MG][pc];
+@@ -2123,13 +2154,14 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
+ void Position::undo_move(Move m) {
+ 
+   assert(is_ok(m));
++  //std::cout << "undo move " << m << '\n';
+ 
+   sideToMove = ~sideToMove;
+ 
+   Color us = sideToMove;
+   Square from = from_sq(m);
+   Square to = to_sq(m);
+-  Piece pc = piece_on(to);
++  //Piece pc = piece_on(to);
+ 
+   assert(type_of(m) == DROP || empty(from) || type_of(m) == CASTLING || is_gating(m)
+          || (type_of(m) == PROMOTION && sittuyin_promotion())
+@@ -2140,6 +2172,7 @@ void Position::undo_move(Move m) {
+   byTypeBB[ALL_PIECES] ^= st->wallSquares ^ st->previous->wallSquares;
+ 
+   // Add the blast pieces
++  /*
+   if (st->capturedPiece && (blast_on_capture() || var->petrifyOnCaptureTypes))
+   {
+       Bitboard blast = attacks_bb<KING>(to) | to;
+@@ -2207,8 +2240,26 @@ void Position::undo_move(Move m) {
+   }
+   else
+   {
++  */
+       if (type_of(m) == DROP)
++	  {
++		  //std::cout << "undropping move " << m << '\n';
+           undrop_piece(make_piece(us, in_hand_piece_type(m)), to); // Remove the dropped piece
++			//TODO worked here
++		    // try to unpop pieces
++		  for (const Direction& D : POP_DIRECTIONS)
++		  {
++			  Square adj = shift_wrap(D,to,1);
++			  Square nex = shift_wrap(D,to,2);
++			  if(st->unpromotedBycatch[nex] != NO_PIECE)
++			  {
++				  move_piece(nex,adj);
++				  //std::cout << "unpop from " << nex << " to " << adj << '\n';
++				  //std::cout << "new fen: " << fen() << '\n';
++			  }
++		  }
++
++	  }
+       else
+           move_piece(to, from); // Put the piece back at the source square
+ 
+@@ -2231,7 +2282,7 @@ void Position::undo_move(Move m) {
+                                                                                                    : make_piece(~color_of(st->capturedPiece), promotion_pawn_type(us)))
+                                                                     : ~st->capturedPiece);
+       }
+-  }
++  //}
+ 
+   if (flip_enclosed_pieces())
+   {
+@@ -2814,7 +2865,7 @@ bool Position::is_immediate_game_end(Value& result, int ply) const {
+       {
+           b = connectPieces;
+           for (int i = 1; i < connect_n() && b; i++)
+-              b &= shift(d, b);
++              b &= shift_wrap(d, b);
+           if (b)
+           {
+               result = convert_mate_value(-var->connectValue, ply);
+diff --git a/src/position.h b/src/position.h
+index 8868d764..f0208cdd 100644
+--- a/src/position.h
++++ b/src/position.h
+@@ -1553,6 +1553,14 @@ inline void Position::drop_piece(Piece pc_hand, Piece pc_drop, Square s) {
+   put_piece(pc_drop, s, pc_drop != pc_hand, pc_drop != pc_hand ? pc_hand : NO_PIECE);
+   remove_from_hand(pc_hand);
+   virtualPieces += (pieceCountInHand[color_of(pc_hand)][type_of(pc_hand)] < 0);
++  ////try to pop pieces
++  //for (const Direction& D : getConnectDirections())
++  //{
++  //    Square adj = shift_wrap(D,s,1);
++  //    Square nex = shift_wrap(D,s,2);
++  //    if((adj & board_bb()) && !(nex & board_bb()))
++  //  	  move_piece(adj,nex);
++  //}
+ }
+ 
+ inline void Position::undrop_piece(Piece pc_hand, Square s) {
+diff --git a/src/types.h b/src/types.h
+index b5812abf..f1ea6f7d 100644
+--- a/src/types.h
++++ b/src/types.h
+@@ -542,6 +542,7 @@ enum Direction : int {
+   SOUTH_WEST = SOUTH + WEST,
+   NORTH_WEST = NORTH + WEST
+ };
++constexpr Direction POP_DIRECTIONS[8] = {EAST,NORTH_EAST,NORTH,NORTH_WEST,WEST,SOUTH_WEST,SOUTH,SOUTH_EAST};
+ 
+ enum File : int {
+ #ifdef LARGEBOARDS
+diff --git a/src/variants.ini b/src/variants.ini
+index d905dcb0..6e7b15c9 100644
+--- a/src/variants.ini
++++ b/src/variants.ini
+@@ -508,6 +508,25 @@ stalemateValue = draw
+ immobilityIllegal = false
+ connectN = 3
+ 
++#TODO after 8 pawns placed do more
++[poptactoe]
++maxRank = 8
++maxFile = 8
++immobile = R
++startFen = 8/8/8/8/8/8/8/8[RRRRRRRRrrrrrrrr] w - - 0 1
++mutuallyImmuneTypes = R
++pieceDrops = true
++mustDrop = true
++doubleStep = false
++castling = false
++stalemateValue = draw
++immobilityIllegal = false
++connectN = 3
++promotionRegionWhite = -
++promotionRegionBlack = -
++
++
++
+ [cfour]
+ maxRank = 6
+ maxFile = 7
