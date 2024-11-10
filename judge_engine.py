@@ -214,7 +214,7 @@ def main():
     # creating judge
     print("Creating judge...")
 
-    judge = Judge("http://ad5761ab88b687.lhr.life:80", "http://127.0.0.1:5008")
+    judge = Judge("http://127.0.0.1:5008", "http://127.0.0.1:5009")
     
     # creating game link
     if not judge.check_latency():
