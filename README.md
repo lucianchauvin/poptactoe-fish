@@ -8,4 +8,4 @@ inside `td_submission/sub1/Fairy-Stockfish/src/`, then the built `stockfish` fil
 
 You can also run using `td_submission/sub1/app.py`, if not using Docker.
 
-`src/` is forked from <https://github.com/fairy-stockfish/Fairy-Stockfish>
+The `Fairy-Stockfish/` directory is forked from <https://github.com/fairy-stockfish/Fairy-Stockfish>.
