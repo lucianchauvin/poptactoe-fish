@@ -1,6 +1,6 @@
 Since we have two copies of the code, we'd like for the contents of `td_submission/sub1/` to be our official submission.
 
-The dockerfile is `td_submission/sub1/Dockerfile`.
+The dockerfile is `td_submission/sub1/Dockerfile`, and it is working so y'all can just use that.
 
 The agent is in the file `td_submission/sub1/sf_agent.py`. It depends on the existence of the `stockfish` file.
 This file may need to be built by running `make clean && make -j build` (possibly with options to specify architecture, etc.) 
